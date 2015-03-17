@@ -1,7 +1,6 @@
 package threesbrain.game.core
 
 import scala.util.Random
-import scala.math
 import Move._
 
 object ThreesGame {
@@ -24,13 +23,15 @@ object ThreesGame {
 }
 
 case class ThreesGame(cells: List[List[Int]], nextCard: Int, stack: List[Int]) {
+
+  import ThreesGame._
     // returns a possible next nextCard and the corresponding future stack
     private def drawNewCard(cells: List[List[Int]]) = {
         val max = cells.flatten.max
         if (max >= 7 && Random.nextFloat() < 1/21.0f) // bonus card
             (Random.nextInt(max - 6) + 4, stack) // stack is not touched
         else // normal card
-            (stack.head, if (stack.tail == Nil) ThreesGame.makeNewStack() else stack.tail) // draw from stack
+            (stack.head, if (stack.tail == Nil) makeNewStack() else stack.tail) // draw from stack
     }
     
     // make a move and place a new card
