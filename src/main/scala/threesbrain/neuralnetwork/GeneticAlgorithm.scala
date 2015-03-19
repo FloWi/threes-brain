@@ -1,10 +1,13 @@
 package threesbrain.neuralnetwork
 
-import scala.annotation.tailrec
-import scala.util.Random
-import scala.collection.GenSeq
 import java.io.FileWriter
 import java.util.concurrent.TimeUnit.NANOSECONDS
+
+import org.apache.log4j.Logger
+
+import scala.annotation.tailrec
+import scala.collection.GenSeq
+import scala.util.Random
 
 object GeneticAlgorithm {
     val mutationRate = 0.1
@@ -12,9 +15,11 @@ object GeneticAlgorithm {
     val crossOverRate = 0.7
     val eliteProportion = 0.1
     val populationSize = 1000
-    val numGenerations = 300
+    val numGenerations = 5000
     
     type Genome = List[Double]
+
+  val logger = Logger.getLogger(this.getClass)
 
     def train(scoreFun: (NeuralNetwork) => Double,
               layerSizes: List[Int]): NeuralNetwork = {
@@ -24,16 +29,37 @@ object GeneticAlgorithm {
         val numWeights = NeuralNetwork.weightLengths(layerSizes).sum
         
         val fileName = s"threesbrain-log-${System.currentTimeMillis()/1000}.csv"
-        val log = new FileWriter(fileName)
-        log.write("Epoch,PopBestAvg,PopWorstAvg,PopAvg\n")
-        println("Epoch        Best       Worst    Average")
+        val csvFile = new FileWriter(fileName)
+        csvFile.write("Epoch,PopBestAvg,PopWorstAvg,PopAvg\n")
+        logger.debug("Epoch        Best       Worst    Average")
 
-        def epoch(population: List[Genome]): List[Genome] = {
-            val scores = population.par.map(genome => scoreFun(NeuralNetwork.fromWeights(layerSizes, genome)))
-            val (max, min, avg) = (scores.max, scores.min, scores.sum/scores.length)
-            log.write(s"$max,$min,$avg\n")
-            log.flush
-            println(f"$max%10.2f,$min%10.2f,$avg%10.2f")
+        def epoch(population: List[Genome], n: Int): List[Genome] = {
+          val epochStart = System.currentTimeMillis()
+          //val par: ParSeq[Genome] = population.par
+          //par.tasksupport = new ForkJoinTaskSupport(new ForkJoinPool(30))
+          //par.tasksupport = new ThreadPoolTaskSupport(new ThreadPoolExecutor(20, 20, 1l, TimeUnit.MINUTES, new ArrayBlockingQueue(10000)))
+
+          //println(s"size: ${population.size}")
+          val scores = population.zipWithIndex.map { case(genome, index) => {
+            val start = System.currentTimeMillis()
+            //logger.debug(s"starting $index")
+            val result: Double = scoreFun(NeuralNetwork.fromWeights(layerSizes, genome))
+            val stop = System.currentTimeMillis()
+            val duration = stop - start
+            //logger.debug(s"stopping $index, result: $result, duration: ${duration}ms")
+            result
+          }}
+
+          val epochEnd = System.currentTimeMillis()
+          val epochDuration = epochEnd - epochStart
+          logger.debug(s"Epoch duration: ${epochDuration}ms")
+
+
+          val (max, min, avg) = (scores.max, scores.min, scores.sum/scores.length)
+            csvFile.write(s"$max,$min,$avg\n")
+            csvFile.flush
+
+            logger.debug(s"${numGenerations - n + 1}/$numGenerations".padTo(8, ' ') + f"$max%10.2f,$min%10.2f,$avg%10.2f")
 
             // Mutate single weights according to mutation rate
             def mutate(genome: Genome) = genome.map({ w =>
@@ -76,7 +102,7 @@ object GeneticAlgorithm {
                 def identity() = {
                     List(mom, dad)
                 }
-                val crossoverFunc = identity _  // it seems that having no crossover is more efficient
+                val crossoverFunc = twoPoint _  // it seems that having no crossover is more efficient
                 
                 if (Random.nextDouble() < crossOverRate)
                     crossoverFunc()
@@ -104,9 +130,9 @@ object GeneticAlgorithm {
         def trainRec(population: List[Genome], cyclesLeft: Int): List[Genome] = cyclesLeft match {
             case 0 => population
             case n =>
-                print(s"${numGenerations - n + 1}/$numGenerations".padTo(8, ' '))
-                log.write(numGenerations - n + 1+",")
-                trainRec(epoch(population), n - 1)
+                //print(s"${numGenerations - n + 1}/$numGenerations".padTo(8, ' '))
+                csvFile.write(numGenerations - n + 1+",")
+                trainRec(epoch(population, n), n - 1)
         }
 
         def randomGenome() = List.fill(numWeights)(Random.nextDouble() * 2.0 - 1.0)
@@ -115,7 +141,7 @@ object GeneticAlgorithm {
         val weights = trainRec(startPopulation, numGenerations).maxBy(
             genome => scoreFun(NeuralNetwork.fromWeights(layerSizes, genome))
         )
-        log.close
+        csvFile.close
 
         val timeEnd = System.nanoTime()
         val timeDelta = timeEnd - timeStart
@@ -124,6 +150,8 @@ object GeneticAlgorithm {
                 NANOSECONDS.toHours(timeDelta) + "h " + 
                 NANOSECONDS.toMinutes(timeDelta) % 60 + "m " + 
                 NANOSECONDS.toSeconds(timeDelta) % 60 + "s")
+
+        println("weights: " + weights.mkString(", "))
 
         NeuralNetwork.fromWeights(layerSizes, weights)
     }
